@@ -1,7 +1,7 @@
 # File_Encrypto
 Encrypt and Decrypt files (AES) in Python.
 
-One can use this to encrypt text,images and mp3 files and it's helpful to encrypt stored passwords or anything which you want to keep secret. Just remember the password!!!
+One can use this to encrypt text, images and mp3 files and it's helpful to encrypt stored passwords or anything which you want to keep secret. Just remember the password!!!
 
 # Getting Started
   Required
