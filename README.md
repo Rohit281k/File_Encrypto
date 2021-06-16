@@ -8,11 +8,11 @@ Installation:-
 
 1. Python 3.x
 
-2. pycrypto
+2. Pycrypto
 
 3. Copy the files inside the modules folder as it is and paste it in the Lib folder of your python directory.
 
-You can install missing dependencies through pip install pycryptodome.
+You can also install missing dependencies through pip install pycryptodome.:)
 
 # License
 This project is licensed under the MIT License - see the License file for details.
