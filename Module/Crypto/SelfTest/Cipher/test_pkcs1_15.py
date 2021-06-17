@@ -20,16 +20,20 @@
 # SOFTWARE.
 # ===================================================================
 
-__revision__ = "$Id$"
+from __future__ import print_function
 
+import json
 import unittest
-import sys
+from binascii import unhexlify
 
 from Crypto.PublicKey import RSA
 from Crypto.SelfTest.st_common import list_test_cases, a2b_hex, b2a_hex
 from Crypto import Random
 from Crypto.Cipher import PKCS1_v1_5 as PKCS
-from Crypto.Util.py3compat import *
+from Crypto.Util.py3compat import b
+from Crypto.Util.number import bytes_to_long, long_to_bytes
+from Crypto.SelfTest.loader import load_test_vectors_wycheproof
+
 
 def rws(t):
     """Remove white spaces, tabs, and new lines from a string"""
@@ -41,7 +45,6 @@ def t2b(t):
     """Convert a text string with bytes in hex form to a byte string"""
     clean = b(rws(t))
     if len(clean)%2 == 1:
-        print clean
         raise ValueError("Even number of characters expected")
     return a2b_hex(clean)
 
@@ -113,12 +116,11 @@ HKukWBcq9f/UOmS0oEhai/6g+Uf7VHJdWaeO5LzuvwU=
                                 self.data = data
                                 self.idx = 0
                             def __call__(self, N):
-                                r = self.data[self.idx:N]
+                                r = self.data[self.idx:self.idx+N]
                                 self.idx += N
                                 return r
                         # The real test
-                        key._randfunc = randGen(t2b(test[3]))
-                        cipher = PKCS.new(key)
+                        cipher = PKCS.new(key, randfunc=randGen(t2b(test[3])))
                         ct = cipher.encrypt(b(test[1]))
                         self.assertEqual(ct, t2b(test[2]))
 
@@ -147,24 +149,100 @@ HKukWBcq9f/UOmS0oEhai/6g+Uf7VHJdWaeO5LzuvwU=
                 # Verify that decryption fails if there are less then 8 non-zero padding
                 # bytes
                 pt = b('\x00\x02' + '\xFF'*7 + '\x00' + '\x45'*118)
-                ct = self.key1024.encrypt(pt, 0)[0]
-                ct = b('\x00'*(128-len(ct))) + ct
+                pt_int = bytes_to_long(pt)
+                ct_int = self.key1024._encrypt(pt_int)
+                ct = long_to_bytes(ct_int, 128)
                 self.assertEqual("---", cipher.decrypt(ct, "---"))
 
         def testEncryptVerify1(self):
                 # Encrypt/Verify messages of length [0..RSAlen-11]
                 # and therefore padding [8..117]
-                for pt_len in xrange(0,128-11+1):
+                for pt_len in range(0,128-11+1):
                     pt = self.rng(pt_len)
                     cipher = PKCS.new(self.key1024)
                     ct = cipher.encrypt(pt)
                     pt2 = cipher.decrypt(ct, "---")
                     self.assertEqual(pt,pt2)
 
+        def testByteArray(self):
+            pt = b"XER"
+            cipher = PKCS.new(self.key1024)
+            ct = cipher.encrypt(bytearray(pt))
+            pt2 = cipher.decrypt(bytearray(ct), "---")
+            self.assertEqual(pt, pt2)
+
+        def testMemoryview(self):
+            pt = b"XER"
+            cipher = PKCS.new(self.key1024)
+            ct = cipher.encrypt(memoryview(bytearray(pt)))
+            pt2 = cipher.decrypt(memoryview(bytearray(ct)), "---")
+            self.assertEqual(pt, pt2)
+
+
+class TestVectorsWycheproof(unittest.TestCase):
+
+    def __init__(self, wycheproof_warnings, skip_slow_tests):
+        unittest.TestCase.__init__(self)
+        self._wycheproof_warnings = wycheproof_warnings
+        self._skip_slow_tests = skip_slow_tests
+        self._id = "None"
+
+    def load_tests(self, filename):
+
+        def filter_rsa(group):
+            return RSA.import_key(group['privateKeyPem'])
+
+        result = load_test_vectors_wycheproof(("Cipher", "wycheproof"),
+                                              filename,
+                                              "Wycheproof PKCS#1v1.5 (%s)" % filename,
+                                              group_tag={'rsa_key': filter_rsa}
+                                              )
+        return result
+
+    def setUp(self):
+        self.tv = []
+        self.tv.extend(self.load_tests("rsa_pkcs1_2048_test.json"))
+        if not self._skip_slow_tests:
+            self.tv.extend(self.load_tests("rsa_pkcs1_3072_test.json"))
+            self.tv.extend(self.load_tests("rsa_pkcs1_4096_test.json"))
+
+    def shortDescription(self):
+        return self._id
+
+    def warn(self, tv):
+        if tv.warning and self._wycheproof_warnings:
+            import warnings
+            warnings.warn("Wycheproof warning: %s (%s)" % (self._id, tv.comment))
+
+    def test_decrypt(self, tv):
+        self._id = "Wycheproof Decrypt PKCS#1v1.5 Test #%s" % tv.id
+
+        cipher = PKCS.new(tv.rsa_key)
+        try:
+            pt = cipher.decrypt(tv.ct, sentinel=b'---')
+        except ValueError:
+            assert not tv.valid
+        else:
+            if pt == b'---':
+                assert not tv.valid
+            else:
+                assert tv.valid
+                self.assertEqual(pt, tv.msg)
+                self.warn(tv)
+
+    def runTest(self):
+
+        for tv in self.tv:
+            self.test_decrypt(tv)
+
 
 def get_tests(config={}):
+    skip_slow_tests = not config.get('slow_tests')
+    wycheproof_warnings = config.get('wycheproof_warnings')
+
     tests = []
     tests += list_test_cases(PKCS1_15_Tests)
+    tests += [TestVectorsWycheproof(wycheproof_warnings, skip_slow_tests)]
     return tests
 
 if __name__ == '__main__':
